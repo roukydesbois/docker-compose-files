@@ -1,0 +1,61 @@
+version: "3.7"
+services:
+    tailscale:
+    image: tailscale/tailscale:stable
+    container_name: tailscale
+    network_mode: "host"
+    hostname: ${TAILSCALE_HOSTNAME}
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./tailscale:/var/lib
+      - /dev/net/tun:/dev/net/tun
+      - ./tailscale-socket:/var/run/tailscale
+    environment:
+      - TS_AUTHKEY=${TAILSCALE_AUTHKEY}
+      - TS_AUTH_ONCE=true
+      - TS_HOSTNAME=${TAILSCALE_HOSTNAME}
+      - TS_SOCKET=/var/run/tailscale/tailscaled.sock
+
+  traefik:
+    image: "traefik:v3.0"
+    container_name: "traefik"
+    command:
+      - --ping=true
+      - --log.level=DEBUG
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.mytailscale.tailscale=true
+    ports:
+      - 8080:8080
+      - 443:443
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./tailscale-socket:/var/run/tailscale
+    depends_on:
+      - tailscale
+    healthcheck:
+      test: [ "CMD", "traefik", "healthcheck", "--ping" ]
+      interval: 5s
+      retries: 10
+  
+  audiobookshelf:
+    container_name: audiobookshelf
+    image: ghcr.io/advplyr/audiobookshelf:latest
+    ports:
+      - 13378:80
+    volumes:
+      - ${DATA_ROOT}/audiobooks:/audiobooks
+      - ${DATA_ROOT}/podcasts:/podcasts
+      - ./audiobookshelf/config:/config
+      - ${DATA_ROOT}/metadata:/metadata
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.audiobookshelf.rule=Host(`$TAILSCALE_FULL_URL`)
+      - traefik.http.routers.audiobookshelf.tls.certresolver=mytailscale
+      - traefik.http.services.audiobookshelf.loadbalancer.server.port=80
+    depends_on:
+      - traefik
