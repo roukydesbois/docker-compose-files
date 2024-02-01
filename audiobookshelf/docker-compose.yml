@@ -1,6 +1,6 @@
 version: "3.7"
 services:
-    tailscale:
+  tailscale:
     image: tailscale/tailscale:stable
     container_name: tailscale
     network_mode: "host"
